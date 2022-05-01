@@ -39,7 +39,7 @@ ogs_pkbuf_t *mme_s11_build_create_session_request(
     int len;
     ogs_gtp2_ambr_t ambr;
     ogs_gtp2_bearer_qos_t bearer_qos;
-    char bearer_qos_buf[GTP2_BEARER_QOS_LEN];
+    char bearer_qos_buf[OGS_BEARER_PER_UE][GTP2_BEARER_QOS_LEN];
     ogs_gtp2_ue_timezone_t ue_timezone;
     struct timeval now;
     struct tm time_exp;
@@ -51,8 +51,6 @@ ogs_pkbuf_t *mme_s11_build_create_session_request(
     session = sess->session;
     ogs_assert(session);
     ogs_assert(session->name);
-    bearer = mme_default_bearer_in_sess(sess);
-    ogs_assert(bearer);
     mme_ue = sess->mme_ue;
     ogs_assert(mme_ue);
     sgw_ue = mme_ue->sgw_ue;
@@ -257,20 +255,28 @@ ogs_pkbuf_t *mme_s11_build_create_session_request(
         req->protocol_configuration_options.len = sess->ue_pco.length;
     }
 
-    req->bearer_contexts_to_be_created.presence = 1;
-    req->bearer_contexts_to_be_created.eps_bearer_id.presence = 1;
-    req->bearer_contexts_to_be_created.eps_bearer_id.u8 = bearer->ebi;
+    int i = 0;
+    ogs_list_for_each(&sess->bearer_list, bearer) {
+        ogs_assert(i < OGS_BEARER_PER_UE);
 
-    memset(&bearer_qos, 0, sizeof(bearer_qos));
-    bearer_qos.qci = session->qos.index;
-    bearer_qos.priority_level = session->qos.arp.priority_level;
-    bearer_qos.pre_emption_capability = session->qos.arp.pre_emption_capability;
-    bearer_qos.pre_emption_vulnerability =
-        session->qos.arp.pre_emption_vulnerability;
-    req->bearer_contexts_to_be_created.bearer_level_qos.presence = 1;
-    ogs_gtp2_build_bearer_qos(
-            &req->bearer_contexts_to_be_created.bearer_level_qos,
-            &bearer_qos, bearer_qos_buf, GTP2_BEARER_QOS_LEN);
+        req->bearer_contexts_to_be_created[i].presence = 1;
+        req->bearer_contexts_to_be_created[i].eps_bearer_id.presence = 1;
+        req->bearer_contexts_to_be_created[i].eps_bearer_id.u8 = bearer->ebi;
+
+        memset(&bearer_qos, 0, sizeof(bearer_qos));
+        bearer_qos.qci = session->qos.index;
+        bearer_qos.priority_level = session->qos.arp.priority_level;
+        bearer_qos.pre_emption_capability =
+            session->qos.arp.pre_emption_capability;
+        bearer_qos.pre_emption_vulnerability =
+            session->qos.arp.pre_emption_vulnerability;
+        req->bearer_contexts_to_be_created[i].bearer_level_qos.presence = 1;
+        ogs_gtp2_build_bearer_qos(
+                &req->bearer_contexts_to_be_created[i].bearer_level_qos,
+                &bearer_qos, bearer_qos_buf[i], GTP2_BEARER_QOS_LEN);
+
+        i++;
+    }
 
     /* UE Time Zone */
     memset(&ue_timezone, 0, sizeof(ue_timezone));

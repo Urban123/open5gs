@@ -80,7 +80,7 @@ void mme_s11_handle_create_session_response(
         ogs_gtp_xact_t *xact, sgw_ue_t *sgw_ue,
         ogs_gtp2_create_session_response_t *rsp)
 {
-    int rv;
+    int rv, i;
     uint8_t cause_value = 0;
     ogs_gtp2_cause_t *cause = NULL;
     ogs_gtp2_f_teid_t *sgw_s11_teid = NULL;
@@ -121,26 +121,6 @@ void mme_s11_handle_create_session_response(
     if (!sgw_ue) {
         ogs_error("No Context in TEID");
         cause_value = OGS_GTP2_CAUSE_CONTEXT_NOT_FOUND;
-    } else {
-        if (rsp->bearer_contexts_created.presence == 0) {
-            ogs_error("No Bearer");
-            cause_value = OGS_GTP2_CAUSE_MANDATORY_IE_MISSING;
-        }
-        if (rsp->bearer_contexts_created.eps_bearer_id.presence == 0) {
-            ogs_error("No EPS Bearer ID");
-            cause_value = OGS_GTP2_CAUSE_MANDATORY_IE_MISSING;
-        }
-
-        if (cause_value == OGS_GTP2_CAUSE_REQUEST_ACCEPTED) {
-            bearer = mme_bearer_find_by_ue_ebi(mme_ue,
-                    rsp->bearer_contexts_created.eps_bearer_id.u8);
-
-            if (!bearer) {
-                ogs_error("No Context for EPS Bearer ID[%d]",
-                        rsp->bearer_contexts_created.eps_bearer_id.u8);
-                cause_value = OGS_GTP2_CAUSE_CONTEXT_NOT_FOUND;
-            }
-        }
     }
 
     if (cause_value != OGS_GTP2_CAUSE_REQUEST_ACCEPTED) {
@@ -166,10 +146,6 @@ void mme_s11_handle_create_session_response(
         ogs_error("No S5C TEID");
         cause_value = OGS_GTP2_CAUSE_CONDITIONAL_IE_MISSING;
     }
-    if (rsp->bearer_contexts_created.s1_u_enodeb_f_teid.presence == 0) {
-        ogs_error("No S1U TEID");
-        cause_value = OGS_GTP2_CAUSE_CONDITIONAL_IE_MISSING;
-    }
 
     if (rsp->pdn_address_allocation.presence) {
         ogs_paa_t paa;
@@ -190,10 +166,6 @@ void mme_s11_handle_create_session_response(
         ogs_error("No Cause");
         cause_value = OGS_GTP2_CAUSE_MANDATORY_IE_MISSING;
     }
-    if (rsp->bearer_contexts_created.cause.presence == 0) {
-        ogs_error("No Bearer Cause");
-        cause_value = OGS_GTP2_CAUSE_MANDATORY_IE_MISSING;
-    }
 
     if (cause_value != OGS_GTP2_CAUSE_REQUEST_ACCEPTED) {
         if (create_action == OGS_GTP_CREATE_IN_ATTACH_REQUEST) {
@@ -210,18 +182,24 @@ void mme_s11_handle_create_session_response(
      ********************/
     ogs_assert(cause_value == OGS_GTP2_CAUSE_REQUEST_ACCEPTED);
 
-    cause = rsp->bearer_contexts_created.cause.data;
-    ogs_assert(cause);
-    cause_value = cause->value;
-    if (cause_value != OGS_GTP2_CAUSE_REQUEST_ACCEPTED) {
-        ogs_error("GTP Failed [Bearer-CAUSE:%d]", cause_value);
-        if (create_action == OGS_GTP_CREATE_IN_ATTACH_REQUEST) {
-            ogs_error("[%s] Attach reject", mme_ue->imsi_bcd);
-            ogs_assert(OGS_OK == nas_eps_send_attach_reject(mme_ue,
-                    EMM_CAUSE_NETWORK_FAILURE, ESM_CAUSE_NETWORK_FAILURE));
+    for (i = 0; i < OGS_BEARER_PER_UE; i++) {
+        if (rsp->bearer_contexts_created[i].cause.presence == 0) {
+            break;
         }
-        mme_send_delete_session_or_mme_ue_context_release(mme_ue);
-        return;
+
+        cause = rsp->bearer_contexts_created[i].cause.data;
+        ogs_assert(cause);
+        cause_value = cause->value;
+        if (cause_value != OGS_GTP2_CAUSE_REQUEST_ACCEPTED) {
+            ogs_error("GTP Failed [Bearer-CAUSE:%d]", cause_value);
+            if (create_action == OGS_GTP_CREATE_IN_ATTACH_REQUEST) {
+                ogs_error("[%s] Attach reject", mme_ue->imsi_bcd);
+                ogs_assert(OGS_OK == nas_eps_send_attach_reject(mme_ue,
+                        EMM_CAUSE_NETWORK_FAILURE, ESM_CAUSE_NETWORK_FAILURE));
+            }
+            mme_send_delete_session_or_mme_ue_context_release(mme_ue);
+            return;
+        }
     }
 
     cause = rsp->cause.data;
@@ -249,11 +227,62 @@ void mme_s11_handle_create_session_response(
     ogs_assert(mme_ue);
     ogs_assert(sgw_ue);
 
-    ogs_assert(bearer);
-    sess = bearer->sess;
     ogs_assert(sess);
     session = sess->session;
     ogs_assert(session);
+
+    ogs_debug("    MME_S11_TEID[%d] SGW_S11_TEID[%d]",
+            sgw_ue->mme_s11_teid, sgw_ue->sgw_s11_teid);
+
+    for (i = 0; i < OGS_BEARER_PER_UE; i++) {
+        if (rsp->bearer_contexts_created[i].presence == 0) {
+            break;
+        }
+        if (rsp->bearer_contexts_created[i].eps_bearer_id.presence == 0) {
+            ogs_error("No EPS Bearer ID");
+            break;
+        }
+        if (rsp->bearer_contexts_created[i].s1_u_enodeb_f_teid.presence == 0) {
+            ogs_error("No GTP TEID");
+            break;
+        }
+
+        /* EPS Bearer ID */
+        bearer = mme_bearer_find_by_ue_ebi(mme_ue,
+                rsp->bearer_contexts_created[i].eps_bearer_id.u8);
+        if (!bearer) {
+            mme_send_delete_session_or_mme_ue_context_release(mme_ue);
+            return;
+        }
+
+        /* Data Plane(UL) : SGW-S1U */
+        sgw_s1u_teid = rsp->bearer_contexts_created[i].s1_u_enodeb_f_teid.data;
+        bearer->sgw_s1u_teid = be32toh(sgw_s1u_teid->teid);
+
+        ogs_debug("    ENB_S1U_TEID[%d] SGW_S1U_TEID[%d]",
+                bearer->enb_s1u_teid, bearer->sgw_s1u_teid);
+
+        rv = ogs_gtp2_f_teid_to_ip(sgw_s1u_teid, &bearer->sgw_s1u_ip);
+        if (rv != OGS_OK) {
+            mme_send_delete_session_or_mme_ue_context_release(mme_ue);
+            return;
+        }
+
+    }
+
+    /* Bearer Level QoS */
+    if (rsp->bearer_contexts_created[0].bearer_level_qos.presence) {
+        decoded = ogs_gtp2_parse_bearer_qos(&bearer_qos,
+            &rsp->bearer_contexts_created[0].bearer_level_qos);
+        ogs_assert(decoded ==
+                rsp->bearer_contexts_created[0].bearer_level_qos.len);
+        session->qos.index = bearer_qos.qci;
+        session->qos.arp.priority_level = bearer_qos.priority_level;
+        session->qos.arp.pre_emption_capability =
+                        bearer_qos.pre_emption_capability;
+        session->qos.arp.pre_emption_vulnerability =
+                        bearer_qos.pre_emption_vulnerability;
+    }
 
     /* Control Plane(UL) : SGW-S11 */
     sgw_s11_teid = rsp->sender_f_teid_for_control_plane.data;
@@ -273,10 +302,10 @@ void mme_s11_handle_create_session_response(
     }
 
     /* Bearer QoS */
-    if (rsp->bearer_contexts_created.bearer_level_qos.presence) {
+    if (rsp->bearer_contexts_created[0].bearer_level_qos.presence) {
         decoded = ogs_gtp2_parse_bearer_qos(&bearer_qos,
-            &rsp->bearer_contexts_created.bearer_level_qos);
-        ogs_assert(rsp->bearer_contexts_created.bearer_level_qos.len ==
+            &rsp->bearer_contexts_created[0].bearer_level_qos);
+        ogs_assert(rsp->bearer_contexts_created[0].bearer_level_qos.len ==
                 decoded);
         session->qos.index = bearer_qos.qci;
         session->qos.arp.priority_level = bearer_qos.priority_level;
@@ -292,18 +321,6 @@ void mme_s11_handle_create_session_response(
         session->ambr.downlink = be32toh(ambr->downlink) * 1000;
         session->ambr.uplink = be32toh(ambr->uplink) * 1000;
     }
-
-    /* Data Plane(UL) : SGW-S1U */
-    sgw_s1u_teid = rsp->bearer_contexts_created.s1_u_enodeb_f_teid.data;
-    bearer->sgw_s1u_teid = be32toh(sgw_s1u_teid->teid);
-
-    ogs_debug("    MME_S11_TEID[%d] SGW_S11_TEID[%d]",
-            sgw_ue->mme_s11_teid, sgw_ue->sgw_s11_teid);
-    ogs_debug("    ENB_S1U_TEID[%d] SGW_S1U_TEID[%d]",
-            bearer->enb_s1u_teid, bearer->sgw_s1u_teid);
-
-    rv = ogs_gtp2_f_teid_to_ip(sgw_s1u_teid, &bearer->sgw_s1u_ip);
-    ogs_assert(rv == OGS_OK);
 
     if (create_action == OGS_GTP_CREATE_IN_ATTACH_REQUEST) {
         mme_csmap_t *csmap = mme_csmap_find_by_tai(&mme_ue->tai);

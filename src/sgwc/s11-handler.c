@@ -116,6 +116,7 @@ void sgwc_s11_handle_create_session_request(
         sgwc_ue_t *sgwc_ue, ogs_gtp_xact_t *s11_xact,
         ogs_pkbuf_t *gtpbuf, ogs_gtp2_message_t *message)
 {
+    int i;
     uint8_t cause_value = 0;
 
     sgwc_sess_t *sess = NULL;
@@ -164,15 +165,15 @@ void sgwc_s11_handle_create_session_request(
         ogs_error("No IMSI");
         cause_value = OGS_GTP2_CAUSE_CONDITIONAL_IE_MISSING;
     }
-    if (req->bearer_contexts_to_be_created.presence == 0) {
+    if (req->bearer_contexts_to_be_created[0].presence == 0) {
         ogs_error("No Bearer");
         cause_value = OGS_GTP2_CAUSE_MANDATORY_IE_MISSING;
     }
-    if (req->bearer_contexts_to_be_created.eps_bearer_id.presence == 0) {
+    if (req->bearer_contexts_to_be_created[0].eps_bearer_id.presence == 0) {
         ogs_error("No EPS Bearer ID");
         cause_value = OGS_GTP2_CAUSE_MANDATORY_IE_MISSING;
     }
-    if (req->bearer_contexts_to_be_created.bearer_level_qos.presence == 0) {
+    if (req->bearer_contexts_to_be_created[0].bearer_level_qos.presence == 0) {
         ogs_error("No Bearer QoS");
         cause_value = OGS_GTP2_CAUSE_MANDATORY_IE_MISSING;
     }
@@ -201,7 +202,7 @@ void sgwc_s11_handle_create_session_request(
             req->access_point_name.data,
             ogs_min(req->access_point_name.len, OGS_MAX_APN_LEN)));
     sess = sgwc_sess_find_by_ebi(sgwc_ue,
-            req->bearer_contexts_to_be_created.eps_bearer_id.u8);
+            req->bearer_contexts_to_be_created[0].eps_bearer_id.u8);
     if (sess) {
         ogs_info("OLD Session Release [IMSI:%s,APN:%s]",
                 sgwc_ue->imsi_bcd, sess->session.name);
@@ -243,27 +244,44 @@ void sgwc_s11_handle_create_session_request(
         return;
     }
 
-    /* Set Bearer QoS */
-    decoded = ogs_gtp2_parse_bearer_qos(&bearer_qos,
-        &req->bearer_contexts_to_be_created.bearer_level_qos);
-    ogs_assert(req->bearer_contexts_to_be_created.bearer_level_qos.len ==
-            decoded);
-    sess->session.qos.index = bearer_qos.qci;
-    sess->session.qos.arp.priority_level = bearer_qos.priority_level;
-    sess->session.qos.arp.pre_emption_capability =
-                    bearer_qos.pre_emption_capability;
-    sess->session.qos.arp.pre_emption_vulnerability =
-                    bearer_qos.pre_emption_vulnerability;
-
     /* Remove all previous bearer */
     sgwc_bearer_remove_all(sess);
 
-    /* Setup Default Bearer */
-    bearer = sgwc_bearer_add(sess);
-    ogs_assert(bearer);
+    /* Setup Bearer */
+    for (i = 0; i < OGS_BEARER_PER_UE; i++) {
+        if (req->bearer_contexts_to_be_created[i].presence == 0)
+            break;
+        if (req->bearer_contexts_to_be_created[i].eps_bearer_id.presence == 0) {
+            ogs_error("No EPS Bearer ID");
+            break;
+        }
+        if (req->bearer_contexts_to_be_created[i].
+                bearer_level_qos.presence == 0) {
+            ogs_error("No Bearer QoS");
+            break;
+        }
 
-    /* Set Bearer EBI */
-    bearer->ebi = req->bearer_contexts_to_be_created.eps_bearer_id.u8;
+        decoded = ogs_gtp2_parse_bearer_qos(&bearer_qos,
+                &req->bearer_contexts_to_be_created[i].bearer_level_qos);
+        ogs_assert(decoded ==
+                req->bearer_contexts_to_be_created[i].bearer_level_qos.len);
+
+        bearer = sgwc_bearer_add(sess);
+        ogs_assert(bearer);
+
+        /* Set Bearer EBI */
+        bearer->ebi = req->bearer_contexts_to_be_created[i].eps_bearer_id.u8;
+
+        /* Set Session QoS from Default Bearer Level QoS */
+        if (i == 0) {
+            sess->session.qos.index = bearer_qos.qci;
+            sess->session.qos.arp.priority_level = bearer_qos.priority_level;
+            sess->session.qos.arp.pre_emption_capability =
+                            bearer_qos.pre_emption_capability;
+            sess->session.qos.arp.pre_emption_vulnerability =
+                            bearer_qos.pre_emption_vulnerability;
+        }
+    }
 
     /* Receive Control Plane(DL) : MME-S11 */
     mme_s11_teid = req->sender_f_teid_for_control_plane.data;
@@ -334,7 +352,7 @@ void sgwc_s11_handle_modify_bearer_request(
      *****************************************/
     ogs_assert(cause_value == OGS_GTP2_CAUSE_REQUEST_ACCEPTED);
 
-    for (i = 0; i < 8 /* Max number of Bearer Contexts in Message */ ; i++) {
+    for (i = 0; i < OGS_BEARER_PER_UE; i++) {
         ogs_pfcp_xact_t *current_xact = NULL;
 
         if (req->bearer_contexts_to_be_modified[i].presence == 0) {

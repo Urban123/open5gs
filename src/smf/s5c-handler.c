@@ -52,7 +52,7 @@ uint8_t smf_s5c_handle_create_session_request(
     char buf1[OGS_ADDRSTRLEN];
     char buf2[OGS_ADDRSTRLEN];
 
-    int rv;
+    int i, rv;
     uint8_t cause_value = 0;
 
     ogs_gtp2_uli_t uli;
@@ -82,15 +82,15 @@ uint8_t smf_s5c_handle_create_session_request(
         ogs_error("No TEID");
         cause_value = OGS_GTP2_CAUSE_MANDATORY_IE_MISSING;
     }
-    if (req->bearer_contexts_to_be_created.presence == 0) {
+    if (req->bearer_contexts_to_be_created[0].presence == 0) {
         ogs_error("No Bearer");
         cause_value = OGS_GTP2_CAUSE_MANDATORY_IE_MISSING;
     }
-    if (req->bearer_contexts_to_be_created.eps_bearer_id.presence == 0) {
+    if (req->bearer_contexts_to_be_created[0].eps_bearer_id.presence == 0) {
         ogs_error("No EPS Bearer ID");
         cause_value = OGS_GTP2_CAUSE_MANDATORY_IE_MISSING;
     }
-    if (req->bearer_contexts_to_be_created.bearer_level_qos.presence == 0) {
+    if (req->bearer_contexts_to_be_created[0].bearer_level_qos.presence == 0) {
         ogs_error("No EPS Bearer QoS");
         cause_value = OGS_GTP2_CAUSE_MANDATORY_IE_MISSING;
     }
@@ -118,7 +118,7 @@ uint8_t smf_s5c_handle_create_session_request(
     }
     switch (sess->gtp_rat_type) {
     case OGS_GTP2_RAT_TYPE_EUTRAN:
-        if (req->bearer_contexts_to_be_created.
+        if (req->bearer_contexts_to_be_created[0].
                 s5_s8_u_sgw_f_teid.presence == 0) {
             ogs_error("No S5/S8 SGW GTP-U TEID");
             cause_value = OGS_GTP2_CAUSE_MANDATORY_IE_MISSING;
@@ -133,7 +133,7 @@ uint8_t smf_s5c_handle_create_session_request(
             ogs_error("No S6b Diameter Peer");
             cause_value = OGS_GTP2_CAUSE_REMOTE_PEER_NOT_RESPONDING;
         }
-        if (req->bearer_contexts_to_be_created.
+        if (req->bearer_contexts_to_be_created[0].
                 s2b_u_epdg_f_teid_5.presence == 0) {
             ogs_error("No S2b ePDG GTP-U TEID");
             cause_value = OGS_GTP2_CAUSE_MANDATORY_IE_MISSING;
@@ -225,50 +225,67 @@ uint8_t smf_s5c_handle_create_session_request(
     /* Remove all previous bearer */
     smf_bearer_remove_all(sess);
 
-    /* Setup Default Bearer */
-    bearer = smf_bearer_add(sess);
-    ogs_assert(bearer);
+    /* Setup Bearer */
+    for (i = 0; i < OGS_BEARER_PER_UE; i++) {
+        if (req->bearer_contexts_to_be_created[i].presence == 0)
+            break;
+        if (req->bearer_contexts_to_be_created[i].eps_bearer_id.presence == 0) {
+            ogs_error("No EPS Bearer ID");
+            break;
+        }
+        if (req->bearer_contexts_to_be_created[i].
+                bearer_level_qos.presence == 0) {
+            ogs_error("No Bearer QoS");
+            break;
+        }
 
-    /* Set Bearer EBI */
-    bearer->ebi = req->bearer_contexts_to_be_created.eps_bearer_id.u8;
+        decoded = ogs_gtp2_parse_bearer_qos(&bearer_qos,
+                &req->bearer_contexts_to_be_created[i].bearer_level_qos);
+        ogs_assert(decoded ==
+                req->bearer_contexts_to_be_created[i].bearer_level_qos.len);
 
-    switch (sess->gtp_rat_type) {
-    case OGS_GTP2_RAT_TYPE_EUTRAN:
-        sgw_s5u_teid = req->bearer_contexts_to_be_created.
-            s5_s8_u_sgw_f_teid.data;
-        ogs_assert(sgw_s5u_teid);
-        bearer->sgw_s5u_teid = be32toh(sgw_s5u_teid->teid);
-        rv = ogs_gtp2_f_teid_to_ip(sgw_s5u_teid, &bearer->sgw_s5u_ip);
-        ogs_assert(rv == OGS_OK);
+        bearer = smf_bearer_add(sess);
+        ogs_assert(bearer);
 
-        break;
-    case OGS_GTP2_RAT_TYPE_WLAN:
-        sgw_s5u_teid = req->bearer_contexts_to_be_created.
-            s2b_u_epdg_f_teid_5.data;
-        ogs_assert(sgw_s5u_teid);
-        bearer->sgw_s5u_teid = be32toh(sgw_s5u_teid->teid);
-        rv = ogs_gtp2_f_teid_to_ip(sgw_s5u_teid, &bearer->sgw_s5u_ip);
-        ogs_assert(rv == OGS_OK);
-        break;
-    default:
-        ogs_error("Unknown RAT Type [%d]", sess->gtp_rat_type);
-        ogs_assert_if_reached();
+        /* Set Bearer EBI */
+        bearer->ebi = req->bearer_contexts_to_be_created[i].eps_bearer_id.u8;
+
+        switch (sess->gtp_rat_type) {
+        case OGS_GTP2_RAT_TYPE_EUTRAN:
+            sgw_s5u_teid = req->bearer_contexts_to_be_created[i].
+                s5_s8_u_sgw_f_teid.data;
+            ogs_assert(sgw_s5u_teid);
+            bearer->sgw_s5u_teid = be32toh(sgw_s5u_teid->teid);
+            rv = ogs_gtp2_f_teid_to_ip(sgw_s5u_teid, &bearer->sgw_s5u_ip);
+            ogs_assert(rv == OGS_OK);
+
+            break;
+        case OGS_GTP2_RAT_TYPE_WLAN:
+            sgw_s5u_teid = req->bearer_contexts_to_be_created[i].
+                s2b_u_epdg_f_teid_5.data;
+            ogs_assert(sgw_s5u_teid);
+            bearer->sgw_s5u_teid = be32toh(sgw_s5u_teid->teid);
+            rv = ogs_gtp2_f_teid_to_ip(sgw_s5u_teid, &bearer->sgw_s5u_ip);
+            ogs_assert(rv == OGS_OK);
+            break;
+        default:
+            ogs_error("Unknown RAT Type [%d]", sess->gtp_rat_type);
+            ogs_assert_if_reached();
+        }
+
+        ogs_debug("    SGW_S5U_TEID[0x%x] PGW_S5U_TEID[0x%x]",
+                bearer->sgw_s5u_teid, bearer->pgw_s5u_teid);
+
+        /* Set Session QoS from Default Bearer Level QoS */
+        if (i == 0) {
+            sess->session.qos.index = bearer_qos.qci;
+            sess->session.qos.arp.priority_level = bearer_qos.priority_level;
+            sess->session.qos.arp.pre_emption_capability =
+                            bearer_qos.pre_emption_capability;
+            sess->session.qos.arp.pre_emption_vulnerability =
+                            bearer_qos.pre_emption_vulnerability;
+        }
     }
-
-    ogs_debug("    SGW_S5U_TEID[0x%x] PGW_S5U_TEID[0x%x]",
-            bearer->sgw_s5u_teid, bearer->pgw_s5u_teid);
-
-    /* Set Bearer QoS */
-    decoded = ogs_gtp2_parse_bearer_qos(&bearer_qos,
-        &req->bearer_contexts_to_be_created.bearer_level_qos);
-    ogs_assert(req->bearer_contexts_to_be_created.bearer_level_qos.len ==
-            decoded);
-    sess->session.qos.index = bearer_qos.qci;
-    sess->session.qos.arp.priority_level = bearer_qos.priority_level;
-    sess->session.qos.arp.pre_emption_capability =
-                    bearer_qos.pre_emption_capability;
-    sess->session.qos.arp.pre_emption_vulnerability =
-                    bearer_qos.pre_emption_vulnerability;
 
     /* Set AMBR if available */
     if (req->aggregate_maximum_bit_rate.presence) {
@@ -389,7 +406,7 @@ void smf_s5c_handle_modify_bearer_request(
 #if 0 /* TODO */
     switch (sess->gtp_rat_type) {
     case OGS_GTP2_RAT_TYPE_EUTRAN:
-        sgw_s5u_teid = req->bearer_contexts_to_be_created.
+        sgw_s5u_teid = req->bearer_contexts_to_be_created[0].
             s5_s8_u_sgw_f_teid.data;
         ogs_assert(sgw_s5u_teid);
         bearer->sgw_s5u_teid = be32toh(sgw_s5u_teid->teid);
@@ -398,7 +415,7 @@ void smf_s5c_handle_modify_bearer_request(
 
         break;
     case OGS_GTP2_RAT_TYPE_WLAN:
-        sgw_s5u_teid = req->bearer_contexts_to_be_created.
+        sgw_s5u_teid = req->bearer_contexts_to_be_created[0].
             s2b_u_epdg_f_teid_5.data;
         ogs_assert(sgw_s5u_teid);
         bearer->sgw_s5u_teid = be32toh(sgw_s5u_teid->teid);
