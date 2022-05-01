@@ -1927,11 +1927,7 @@ void s1ap_handle_path_switch_request(
     mme_ue->nhcc++;
     ogs_kdf_nh_enb(mme_ue->kasme, mme_ue->nh, mme_ue->nh);
 
-#if 0
     relocation = sgw_ue_check_if_relocated(mme_ue);
-#else
-    relocation = SGW_WITHOUT_RELOCATION;
-#endif
     if (relocation == SGW_WITHOUT_RELOCATION) {
 
         ogs_list_init(&mme_ue->bearer_to_modify_list);

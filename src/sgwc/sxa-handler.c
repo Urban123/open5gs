@@ -617,7 +617,7 @@ void sgwc_sxa_handle_session_modification_response(
             ogs_pfcp_xact_commit(pfcp_xact);
 
             ogs_assert(flags & OGS_PFCP_MODIFY_SESSION);
-            if (SESSION_SYNC_DONE(sgwc_ue,
+            if (SGWC_SESSION_SYNC_DONE(sgwc_ue,
                 OGS_PFCP_SESSION_MODIFICATION_REQUEST_TYPE, flags)) {
 
                 sgwc_tunnel_t *tunnel = NULL, *next_tunnel = NULL;
@@ -797,7 +797,7 @@ void sgwc_sxa_handle_session_modification_response(
             ogs_pfcp_xact_commit(pfcp_xact);
 
             ogs_assert(flags & OGS_PFCP_MODIFY_SESSION);
-            if (SESSION_SYNC_DONE(sgwc_ue,
+            if (SGWC_SESSION_SYNC_DONE(sgwc_ue,
                 OGS_PFCP_SESSION_MODIFICATION_REQUEST_TYPE, flags)) {
 
                 sgwc_tunnel_t *tunnel = NULL;
@@ -973,7 +973,7 @@ void sgwc_sxa_handle_session_modification_response(
 #if 0 /* FIXME */
             ogs_assert(flags & OGS_PFCP_MODIFY_SESSION);
 #endif
-            if (SESSION_SYNC_DONE(sgwc_ue,
+            if (SGWC_SESSION_SYNC_DONE(sgwc_ue,
                     OGS_PFCP_SESSION_MODIFICATION_REQUEST_TYPE, flags)) {
                 ogs_gtp2_modify_bearer_request_t *gtp_req = NULL;
                 ogs_gtp2_modify_bearer_response_t *gtp_rsp = NULL;
@@ -1098,7 +1098,7 @@ void sgwc_sxa_handle_session_modification_response(
             ogs_pfcp_xact_commit(pfcp_xact);
 
             ogs_assert(flags & OGS_PFCP_MODIFY_SESSION);
-            if (SESSION_SYNC_DONE(sgwc_ue,
+            if (SGWC_SESSION_SYNC_DONE(sgwc_ue,
                     OGS_PFCP_SESSION_MODIFICATION_REQUEST_TYPE, flags)) {
                 ogs_assert(OGS_OK ==
                     sgwc_gtp_send_downlink_data_notification(
@@ -1112,7 +1112,7 @@ void sgwc_sxa_handle_session_modification_response(
             ogs_pfcp_xact_commit(pfcp_xact);
 
             ogs_assert(flags & OGS_PFCP_MODIFY_SESSION);
-            if (SESSION_SYNC_DONE(sgwc_ue,
+            if (SGWC_SESSION_SYNC_DONE(sgwc_ue,
                     OGS_PFCP_SESSION_MODIFICATION_REQUEST_TYPE, flags)) {
 
                 ogs_gtp2_release_access_bearers_response_t *gtp_rsp = NULL;
