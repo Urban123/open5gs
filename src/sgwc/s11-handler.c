@@ -272,6 +272,34 @@ void sgwc_s11_handle_create_session_request(
         /* Set Bearer EBI */
         bearer->ebi = req->bearer_contexts_to_be_created[i].eps_bearer_id.u8;
 
+        if (req->bearer_contexts_to_be_created[i].s1_u_enodeb_f_teid.presence) {
+
+            sgwc_tunnel_t *dl_tunnel = NULL;
+            ogs_pfcp_far_t *far = NULL;
+            ogs_gtp2_f_teid_t *enb_s1u_teid = NULL;
+
+            dl_tunnel = sgwc_dl_tunnel_in_bearer(bearer);
+            ogs_assert(dl_tunnel);
+
+            /* Data Plane(DL) : eNB-S1U */
+            enb_s1u_teid = req->bearer_contexts_to_be_created[i].
+                            s1_u_enodeb_f_teid.data;
+            dl_tunnel->remote_teid = be32toh(enb_s1u_teid->teid);
+
+            ogs_assert(OGS_OK ==
+                    ogs_gtp2_f_teid_to_ip(enb_s1u_teid, &dl_tunnel->remote_ip));
+
+            far = dl_tunnel->far;
+            ogs_assert(far);
+
+            far->apply_action = OGS_PFCP_APPLY_ACTION_FORW;
+
+            ogs_assert(OGS_OK == ogs_pfcp_ip_to_outer_header_creation(
+                    &dl_tunnel->remote_ip, &far->outer_header_creation,
+                    &far->outer_header_creation_len));
+            far->outer_header_creation.teid = dl_tunnel->remote_teid;
+        }
+
         /* Set Session QoS from Default Bearer Level QoS */
         if (i == 0) {
             sess->session.qos.index = bearer_qos.qci;
